@@ -1,0 +1,8 @@
+Display_Name,Login_URLs,Login_URL_Match_Rules,Login_Username,Login_Password,Login_TOTP,Tag,Tag_Color,Favorite,Notes,Others
+GitHub,"https://github.com/login
+https://github.com",exact,octocat,"hunter2!@#",JBSWY3DPEHPK3PXP,Dev,blue,1,"Two-factor enabled
+Recovery codes in safe","Security questions: pet's name
+Account ID=12345"
+Gmail,https://mail.google.com,domain,user@example.com,p@ss w/ space,,Personal,green,0,,
+NoURL Item,,,solo,onlypass,,,,0,Just a note,
+EmptyTotp,https://example.org,,me,pw,nan,Misc,,no,,
