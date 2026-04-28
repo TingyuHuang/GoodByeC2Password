@@ -1,6 +1,21 @@
 # GoodByeC2Password
 
-把 [Synology C2 Password](https://c2.synology.com/en-global/password/) 的 CSV 匯出檔轉成 **Bitwarden** 或 **1Password** 能直接匯入的 CSV。
+把 [Synology C2 Password](https://c2.synology.com/en-global/password/) 的 CSV 匯出檔轉成主流密碼管理器都能直接匯入的 CSV。
+
+支援的目標格式：
+
+| 目標 | `--to` | 說明 |
+|---|---|---|
+| Bitwarden | `bitwarden` | 自訂欄位 → `fields` 欄 |
+| 1Password | `1password` | 自訂欄位 → 各自獨立欄；TOTP 包成 `otpauth://` |
+| KeePassXC | `keepassxc` | 原生 7 欄 CSV；TOTP 為 `otpauth://` |
+| LastPass | `lastpass` | 通用 8 欄 CSV |
+| Proton Pass | `proton` | 通用 8+1 欄 CSV；email-like username 自動進 `email` 欄 |
+| Dashlane | `dashlane` | credentials 範本 CSV |
+| NordPass | `nordpass` | 擴充欄位（含 `folder`） |
+| Apple Passwords (iCloud Keychain) | `apple` | iOS / macOS Passwords app；TOTP 為 `otpauth://` |
+| Chrome | `chrome` | 與 Chrome 自家匯出格式相同 |
+| Firefox | `firefox` | `about:logins` CSV；自動補 `https://` |
 
 > 中文說明在下，English notes are inline below each section.
 
@@ -8,11 +23,11 @@
 
 ## 專案用途 / Purpose
 
-Synology 已宣布 C2 Password 終止服務，現有使用者必須在期限前把資料搬到別的密碼管理器。C2 提供的匯出只有一種 CSV，欄位名稱（`Display_Name`、`Login_URLs`、`Login_TOTP`…）是 Synology 自訂的，Bitwarden / 1Password / Proton Pass 等等都不認得，直接匯入會失敗或欄位錯位。
+Synology 已宣布 C2 Password 終止服務，現有使用者必須在期限前把資料搬到別的密碼管理器。C2 提供的匯出只有一種 CSV，欄位名稱（`Display_Name`、`Login_URLs`、`Login_TOTP`…）是 Synology 自訂的，其他密碼管理器都不認得，直接匯入會失敗或欄位錯位。
 
-這個專案就是一個小工具，**讀 C2 的 CSV → 輸出目標廠商格式的 CSV**，並處理掉幾個只有用真檔才會踩到的雷（編碼、多 URL、空字串樣式…）。
+這個專案就是一個小工具，**讀 C2 的 CSV → 輸出目標廠商格式的 CSV**，並處理掉幾個只有用真檔才會踩到的雷（編碼、多 URL、`Others` 是 JSON…）。
 
-> Synology is sunsetting C2 Password. Its CSV export uses Synology-specific column names that no other manager understands. This tool reads that CSV and writes a Bitwarden- or 1Password-ready CSV.
+> Synology is sunsetting C2 Password. Its CSV export uses Synology-specific column names that no other manager understands. This tool reads that CSV and writes a CSV ready for Bitwarden, 1Password, KeePassXC, LastPass, Proton Pass, Dashlane, NordPass, Apple Passwords, Chrome, or Firefox.
 
 ---
 
@@ -41,11 +56,17 @@ python -m c2pw_convert <input.csv> --to bitwarden -o out.csv
 ### 步驟 2：轉檔
 
 ```sh
-# 轉成 Bitwarden 可匯入的格式
-c2pw-convert C2Password_export.csv --to bitwarden -o bitwarden.csv
-
-# 轉成 1Password 可匯入的格式
-c2pw-convert C2Password_export.csv --to 1password -o onepassword.csv
+# 範例：轉成各家格式
+c2pw-convert C2Password_export.csv --to bitwarden  -o bitwarden.csv
+c2pw-convert C2Password_export.csv --to 1password  -o onepassword.csv
+c2pw-convert C2Password_export.csv --to keepassxc  -o keepassxc.csv
+c2pw-convert C2Password_export.csv --to lastpass   -o lastpass.csv
+c2pw-convert C2Password_export.csv --to proton     -o proton_pass.csv
+c2pw-convert C2Password_export.csv --to dashlane   -o dashlane.csv
+c2pw-convert C2Password_export.csv --to nordpass   -o nordpass.csv
+c2pw-convert C2Password_export.csv --to apple      -o apple_passwords.csv
+c2pw-convert C2Password_export.csv --to chrome     -o chrome.csv
+c2pw-convert C2Password_export.csv --to firefox    -o firefox.csv
 ```
 
 不指定 `-o` 時會輸出到 stdout，可直接 pipe：
@@ -56,23 +77,31 @@ c2pw-convert C2Password_export.csv --to bitwarden | less
 
 ### 步驟 3：匯入到目標密碼管理器
 
-| 目標 | 操作路徑 | 匯入格式選 |
+| 目標 | 操作路徑 | 匯入格式 |
 |---|---|---|
-| **Bitwarden**（網頁/桌面/CLI） | Tools → Import data | `Bitwarden (csv)` |
-| **1Password**（桌面版） | File → Import → CSV | (自動偵測欄位) |
-
-> Bitwarden Web Vault: Tools → Import data → Bitwarden (csv).  
-> 1Password desktop: File → Import → CSV.
+| **Bitwarden** | Tools → Import data | `Bitwarden (csv)` |
+| **1Password** | File → Import → CSV | _自動偵測_ |
+| **KeePassXC** | Database → Import → CSV File | _依 header 對映_ |
+| **LastPass** | Account → Advanced → Import → Generic CSV File | `Generic CSV` |
+| **Proton Pass** | Settings → Import → Generic CSV | `Generic CSV` |
+| **Dashlane** | My account → Import data → Custom CSV file | `Dashlane CSV` |
+| **NordPass** | Settings → Import items → CSV | `CSV` |
+| **Apple Passwords** | macOS Passwords app → File → Import Passwords | `CSV File` |
+| **Chrome** | `chrome://password-manager/settings` → Import passwords | `CSV` |
+| **Firefox** | `about:logins` → … → Import from a File | `CSV` |
 
 ### 完整 CLI 參數
 
 ```
-c2pw-convert <input.csv> --to {bitwarden,1password} [-o OUTPUT]
+c2pw-convert <input.csv>
+  --to {1password,apple,bitwarden,chrome,dashlane,
+        firefox,keepassxc,lastpass,nordpass,proton}
+  [-o OUTPUT]
 
 positional:
   input              C2 Password 匯出的 CSV 檔
 options:
-  --to               轉換目標：bitwarden 或 1password
+  --to               轉換目標
   -o, --output       輸出檔路徑；省略時印到 stdout
 ```
 
@@ -84,7 +113,23 @@ C2 Password 的 CSV **只會匯出 Login 項目**。信用卡、安全筆記、�
 
 > C2's export only contains Login items. Cards, secure notes, identities, and attachments are not in the CSV and must be re-entered manually.
 
-### 欄位對映表
+### 共通對映規則 (其他 8 種格式)
+
+由於 KeePassXC、LastPass、Proton Pass、Dashlane、NordPass、Apple Passwords、Chrome、Firefox 的 generic CSV importer 都只接受少數固定欄位，沒有「自訂欄位」這種概念，**每個目標格式的 writer 都遵循以下規則**：
+
+- C2 的 `Display_Name` → 各家的 title/name 欄
+- 第一個 `Login_URLs` → 各家的 url 欄；**多餘的 URL** 會以 `Additional URLs:` 區塊塞進 notes
+- `Login_Username` → username 欄（Proton Pass 例外：含 `@` 時會放到 `email`）
+- `Login_Password` → password 欄
+- `Login_TOTP`：
+  - 若目標有 TOTP 欄（LastPass/Proton/Dashlane）→ 直接放純 secret
+  - 若目標期望 `otpauth://` URI（KeePassXC/Apple）→ 自動包成 `otpauth://totp/Issuer:Account?secret=...&issuer=...`
+  - 若目標**沒有** TOTP 欄（NordPass/Chrome）→ 以 `TOTP: <secret>` 一行追加在 notes
+- `Tag` → 各家的 folder/group/category/grouping/vault 欄
+- `Notes` 與 `Others`（自訂欄位）→ 合併到 notes 欄；自訂欄位會在 notes 末端用 `--- Custom fields ---` 區塊呈現
+- `Login_URL_Match_Rules`、`Tag_Color`、`Favorite`（除了 Bitwarden/1Password/LastPass 之外）→ 不保留
+
+### 欄位對映表（Bitwarden / 1Password 細節）
 
 | C2 Password 欄位 | → Bitwarden | → 1Password |
 |---|---|---|
@@ -114,7 +159,19 @@ C2 Password 的 CSV **只會匯出 Login 項目**。信用卡、安全筆記、�
 ## 程式化使用 / As a library
 
 ```python
-from c2pw_convert import parse_c2_csv, write_bitwarden_csv, write_onepassword_csv
+from c2pw_convert import (
+    parse_c2_csv,
+    write_apple_csv,
+    write_bitwarden_csv,
+    write_chrome_csv,
+    write_dashlane_csv,
+    write_firefox_csv,
+    write_keepassxc_csv,
+    write_lastpass_csv,
+    write_nordpass_csv,
+    write_onepassword_csv,
+    write_proton_csv,
+)
 
 items = parse_c2_csv("C2Password_export.csv")
 print(f"共 {len(items)} 筆登入資料")
@@ -123,7 +180,9 @@ print(f"共 {len(items)} 筆登入資料")
 items = [it for it in items if it.password]
 
 write_bitwarden_csv(items, "bitwarden.csv")
-write_onepassword_csv(items, "onepassword.csv")
+write_keepassxc_csv(items, "keepassxc.csv")
+write_proton_csv(items, "proton.csv")
+# ...等等
 ```
 
 `C2Item` dataclass 欄位：
@@ -159,13 +218,18 @@ python -m pytest -v
 
 ```
 c2pw_convert/
-  parser.py         # 讀 C2 CSV，處理編碼/換行/sniffer
+  parser.py         # 讀 C2 CSV，處理編碼/換行/sniffer/JSON Others
+  _util.py          # 共用工具：otpauth URI、notes 合併、CSV writer
   bitwarden.py      # 輸出 Bitwarden CSV
   onepassword.py    # 輸出 1Password CSV
+  formats.py        # 其餘 8 家：KeePassXC/LastPass/Proton/Dashlane/NordPass/Apple/Chrome/Firefox
   cli.py            # 命令列入口
 tests/
-  fixtures/sample_c2.csv
+  C2Password_Export.csv         # 真實 C2 匯出檔
+  fixtures/sample_c2.csv         # 合成 fixture
   test_parser.py
+  test_real_export.py
+  test_formats.py
 ```
 
 ---

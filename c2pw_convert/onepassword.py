@@ -15,8 +15,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 from typing import Iterable, TextIO
-from urllib.parse import quote
 
+from ._util import otpauth_uri
 from .parser import C2Item
 
 ONEPASSWORD_BASE_HEADERS = [
@@ -31,22 +31,8 @@ ONEPASSWORD_BASE_HEADERS = [
 ]
 
 
-def _otpauth_uri(secret: str, account: str, issuer: str) -> str:
-    """Wrap a bare TOTP secret into an ``otpauth://`` URI if needed.
-
-    C2 stores the bare secret; 1Password's CSV importer accepts both the
-    secret and an otpauth URI. Emitting the URI form keeps the issuer/account
-    metadata aligned with the login.
-    """
-    if not secret:
-        return ""
-    if secret.lower().startswith("otpauth://"):
-        return secret
-    label = quote(f"{issuer}:{account}" if issuer and account else (issuer or account or "C2"))
-    params = f"secret={secret}"
-    if issuer:
-        params += f"&issuer={quote(issuer)}"
-    return f"otpauth://totp/{label}?{params}"
+# Backwards-compatible alias for the helper that used to live here.
+_otpauth_uri = otpauth_uri
 
 
 def _row_for(item: C2Item, custom_headers: list[str]) -> list[str]:
@@ -57,7 +43,7 @@ def _row_for(item: C2Item, custom_headers: list[str]) -> list[str]:
         primary_url,
         item.username,
         item.password,
-        _otpauth_uri(item.totp, item.username, issuer),
+        otpauth_uri(item.totp, item.username, issuer),
         "Y" if item.favorite else "",
         item.tag,
         item.notes,
