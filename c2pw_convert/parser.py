@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 ENCODINGS = ("utf-8-sig", "utf-8", "utf-16", "cp1252", "iso-8859-1")
 NULLISH = {"", "nan", "none", "null"}
@@ -115,21 +116,95 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "favorite", "★"}
 
 
-def _parse_others(value: str) -> dict[str, str]:
-    """Best-effort split of the free-form ``Others`` field into key/value pairs.
+def _format_address(addr: dict[str, Any]) -> str:
+    parts: list[str] = []
+    line = addr.get("Address", "")
+    if line:
+        parts.append(str(line))
+    locality_bits = [
+        addr.get("City_Town", ""),
+        addr.get("County_District", ""),
+        addr.get("Province_State", ""),
+        addr.get("Postal", ""),
+    ]
+    locality = ", ".join(str(b) for b in locality_bits if b)
+    if locality:
+        parts.append(locality)
+    location = addr.get("Location", "")
+    if location:
+        parts.append(str(location))
+    return "\n".join(parts)
 
-    C2's UI lets users add arbitrary custom fields; in the CSV they end up
-    flattened. We've seen two shapes in the wild:
 
-    * ``key: value`` pairs separated by newlines
-    * ``key=value`` pairs separated by ``;``
+def _flatten_others_json(data: Any) -> dict[str, str]:
+    """Flatten C2's ``Others`` JSON object into ``{title: value}`` pairs.
 
-    Anything we can't parse becomes a single ``Others`` entry so the data is
-    not silently dropped.
+    Real C2 exports use this shape::
+
+        {"Custom": [
+            {"Type": "Text",     "Text_Title": "...",     "Text": "..."},
+            {"Type": "Password", "Password_Title": "...", "Password": "..."},
+            {"Type": "TOTP",     "TOTP_Title": "...",     "TOTP_Key": "..."},
+            {"Type": "Address",  "Address_Title": "...",  "Address": {...}},
+        ]}
+
+    Each typed entry is reduced to its title and a string value. Address
+    sub-objects are joined into a multi-line string so they survive the
+    round-trip into plain CSV cells.
     """
+    if not isinstance(data, dict):
+        return {}
+    custom = data.get("Custom")
+    if not isinstance(custom, list):
+        return {}
 
+    result: dict[str, str] = {}
+    for idx, entry in enumerate(custom):
+        if not isinstance(entry, dict):
+            continue
+        type_ = entry.get("Type", "")
+        title_key = f"{type_}_Title"
+        title = str(entry.get(title_key, "")).strip()
+        if type_ == "Text":
+            value = entry.get("Text", "")
+        elif type_ == "Password":
+            value = entry.get("Password", "")
+        elif type_ == "TOTP":
+            value = entry.get("TOTP_Key", "")
+        elif type_ == "Address":
+            raw = entry.get("Address", "")
+            value = _format_address(raw) if isinstance(raw, dict) else raw
+        else:
+            # Unknown type: keep whatever non-meta fields are present.
+            extras = {k: v for k, v in entry.items() if k not in {"Type", title_key}}
+            value = json.dumps(extras, ensure_ascii=False) if extras else ""
+
+        key = title or f"{type_ or 'Custom'}_{idx + 1}"
+        # Avoid clobbering duplicate titles by appending an index.
+        if key in result:
+            key = f"{key} ({idx + 1})"
+        result[key] = "" if value is None else str(value)
+    return result
+
+
+def _parse_others(value: str) -> dict[str, str]:
+    """Parse C2's ``Others`` field.
+
+    Real exports embed JSON. Older notes / hand-written CSVs sometimes used
+    ``key: value`` lines, so we keep a fallback for that shape too. Anything
+    we genuinely can't understand is preserved under a single ``Others`` key
+    so data is never silently dropped.
+    """
     if not value:
         return {}
+
+    stripped = value.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            return _flatten_others_json(json.loads(value))
+        except json.JSONDecodeError:
+            pass  # fall through to line-based parsing
+
     result: dict[str, str] = {}
     raw_lines = value.replace("\r\n", "\n").split("\n")
     for line in raw_lines:
@@ -137,6 +212,7 @@ def _parse_others(value: str) -> dict[str, str]:
         if not line:
             continue
         sep_idx = -1
+        sep_len = 0
         for sep in (": ", ":", "="):
             idx = line.find(sep)
             if idx != -1:

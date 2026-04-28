@@ -107,6 +107,7 @@ C2 Password 的 CSV **只會匯出 Login 項目**。信用卡、安全筆記、�
 - **空值正規化**：`""` / `nan` / `none` / `null` 一律當成空
 - **Delimiter 偵測**：用 `csv.Sniffer` 自動判斷 `,` / `;` / Tab
 - **TOTP**：C2 存的是純 secret，輸出到 1Password 時自動包成 `otpauth://totp/Issuer:Account?secret=...&issuer=Issuer`
+- **`Others` 欄是 JSON**：實際的 C2 匯出把自訂欄位編成 JSON `{"Custom":[{"Type":"Text"|"Password"|"TOTP"|"Address", ...}]}`。本工具會解開並依 `Type` 萃取出 `{title: value}`；`Address` 子物件會合併成多行字串
 
 ---
 
