@@ -151,13 +151,21 @@ def _flatten_others_json(data: Any) -> dict[str, str]:
     Each typed entry is reduced to its title and a string value. Address
     sub-objects are joined into a multi-line string so they survive the
     round-trip into plain CSV cells.
-    """
-    if not isinstance(data, dict):
-        return {}
-    custom = data.get("Custom")
-    if not isinstance(custom, list):
-        return {}
 
+    When the JSON does not match the ``{"Custom": [...]}`` shape (e.g. a bare
+    array, or a dict without a ``Custom`` key), we preserve the raw JSON
+    under a single ``Others`` key rather than silently dropping it. That way
+    a future C2 format tweak still surfaces the data downstream instead of
+    disappearing.
+    """
+    if isinstance(data, dict) and isinstance(data.get("Custom"), list):
+        return _flatten_custom_list(data["Custom"])
+
+    # Unrecognized shape: keep the raw JSON so nothing gets silently dropped.
+    return {"Others": json.dumps(data, ensure_ascii=False)}
+
+
+def _flatten_custom_list(custom: list[Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for idx, entry in enumerate(custom):
         if not isinstance(entry, dict):

@@ -110,3 +110,34 @@ def test_unrecognized_headers_raise():
         assert "Could not recognize" in str(exc)
     else:
         raise AssertionError("expected ValueError for unknown headers")
+
+
+# ---- Regression: fix #3 — Others JSON of an unexpected shape must not vanish.
+
+
+def _make_csv_with_others(others_cell: str) -> str:
+    """Build a minimal C2 CSV with a single row whose Others cell we control."""
+    header = "Display_Name,Login_URLs,Login_Username,Login_Password,Others"
+    quoted = others_cell.replace('"', '""')
+    return header + "\n" + f'Item,,,,"{quoted}"\n'
+
+
+def test_others_json_bare_array_is_preserved():
+    """A JSON array (not {"Custom":[...]}) used to be silently dropped."""
+    raw = '[{"foo": "bar"}, {"baz": 1}]'
+    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
+    assert items[0].custom_fields == {"Others": raw}
+
+
+def test_others_json_dict_without_custom_key_is_preserved():
+    """A JSON dict without a 'Custom' key must also survive."""
+    raw = '{"UnexpectedKey": "keep me"}'
+    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
+    assert items[0].custom_fields == {"Others": raw}
+
+
+def test_others_json_dict_with_non_list_custom_is_preserved():
+    """A 'Custom' value that isn't a list still counts as unrecognized."""
+    raw = '{"Custom": "not-a-list"}'
+    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
+    assert items[0].custom_fields == {"Others": raw}

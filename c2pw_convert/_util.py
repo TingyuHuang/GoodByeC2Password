@@ -16,6 +16,10 @@ def otpauth_uri(secret: str, account: str, issuer: str) -> str:
 
     Already-formed otpauth URIs pass through unchanged. Empty input returns
     empty.
+
+    The ``secret`` value is URL-encoded because Base32 secrets frequently end
+    with ``=`` padding, which — if left raw in a query string — reads as
+    another ``key=`` boundary to strict URI parsers.
     """
     if not secret:
         return ""
@@ -25,7 +29,7 @@ def otpauth_uri(secret: str, account: str, issuer: str) -> str:
         label = f"{issuer}:{account}"
     else:
         label = issuer or account or "C2"
-    params = f"secret={secret}"
+    params = f"secret={quote(secret, safe='')}"
     if issuer:
         params += f"&issuer={quote(issuer)}"
     return f"otpauth://totp/{quote(label)}?{params}"

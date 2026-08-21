@@ -5,11 +5,11 @@ Bitwarden's import expects this column order:
     folder, favorite, type, name, notes, fields, reprompt,
     login_uri, login_username, login_password, login_totp
 
-A row with multiple URIs is encoded by emitting one row per URI: Bitwarden's
-importer treats consecutive rows with the same name as the same item and
-merges their ``login_uri`` columns. We instead pack URIs into a single row
-separated by commas, which Bitwarden also accepts and which keeps custom
-fields/folder duplication out of the file.
+Multiple URIs on one item are supported by comma-separating them inside a
+single ``login_uri`` cell. Bitwarden's importer re-parses the cell with
+``parseSingleRowCsv`` and produces one Login URI per entry — verified
+against ``bitwarden-csv-importer.ts`` in the upstream ``bitwarden/clients``
+repository.
 """
 
 from __future__ import annotations
