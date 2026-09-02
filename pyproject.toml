@@ -5,10 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "c2pw-convert"
 version = "0.1.0"
-description = "Convert Synology C2 Password CSV exports to Bitwarden or 1Password CSV."
+description = "Convert Synology C2 Password JSON exports to Bitwarden JSON, or to CSV for other password managers."
 requires-python = ">=3.10"
 license = { text = "MIT" }
 readme = "README.md"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
 
 [project.scripts]
 c2pw-convert = "c2pw_convert.cli:main"
@@ -16,3 +19,7 @@ c2pw-convert = "c2pw_convert.cli:main"
 [tool.setuptools.packages.find]
 include = ["c2pw_convert*"]
 exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
