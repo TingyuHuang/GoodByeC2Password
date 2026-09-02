@@ -1,143 +1,215 @@
-import csv
-import io
+"""Parsing a C2 Password JSON export into the neutral C2Item shape.
+
+The fixture ``tests/C2Password_Export.json`` is a real export covering every
+built-in C2 type: login, contact information, payment card, wireless router
+and secure note. ``fixtures/edge_cases.json`` covers what the real one
+doesn't: a C2 type we don't model, nested payloads, multiple tags, and
+duplicate field names.
+"""
+
+import json
 from pathlib import Path
 
-from c2pw_convert import parse_c2_csv, write_bitwarden_csv, write_onepassword_csv
+import pytest
 
-FIXTURE = Path(__file__).parent / "fixtures" / "sample_c2.csv"
+from c2pw_convert import (
+    ITEM_TYPE_CARD,
+    ITEM_TYPE_IDENTITY,
+    ITEM_TYPE_LOGIN,
+    ITEM_TYPE_NOTE,
+    parse_c2_json,
+)
+from c2pw_convert.parser import humanize
 
-
-def test_parse_basic_fields():
-    items = parse_c2_csv(FIXTURE)
-    assert len(items) == 4
-
-    github = items[0]
-    assert github.name == "GitHub"
-    assert github.urls == ["https://github.com/login", "https://github.com"]
-    assert github.username == "octocat"
-    assert github.password == "hunter2!@#"
-    assert github.totp == "JBSWY3DPEHPK3PXP"
-    assert github.tag == "Dev"
-    assert github.favorite is True
-    assert "Two-factor enabled" in github.notes
-    assert github.custom_fields["Account ID"] == "12345"
-    assert "Security questions" in " ".join(github.custom_fields.keys())
+REAL_EXPORT = Path(__file__).parent / "C2Password_Export.json"
+EDGE_CASES = Path(__file__).parent / "fixtures" / "edge_cases.json"
 
 
-def test_parse_handles_nullish_and_missing():
-    items = parse_c2_csv(FIXTURE)
-    no_url = items[2]
-    assert no_url.name == "NoURL Item"
-    assert no_url.urls == []
-    assert no_url.favorite is False
-
-    empty_totp = items[3]
-    # "nan" must be normalized to empty
-    assert empty_totp.totp == ""
-    assert empty_totp.favorite is False
+@pytest.fixture
+def items():
+    return parse_c2_json(REAL_EXPORT)
 
 
-def test_bitwarden_output_columns_and_rows():
-    items = parse_c2_csv(FIXTURE)
-    buf = io.StringIO()
-    write_bitwarden_csv(items, buf)
-    buf.seek(0)
-    rows = list(csv.DictReader(buf))
-    assert len(rows) == 4
-
-    gh = rows[0]
-    assert gh["type"] == "login"
-    assert gh["name"] == "GitHub"
-    assert gh["folder"] == "Dev"
-    assert gh["favorite"] == "1"
-    assert gh["login_uri"] == "https://github.com/login,https://github.com"
-    assert gh["login_username"] == "octocat"
-    assert gh["login_password"] == "hunter2!@#"
-    assert gh["login_totp"] == "JBSWY3DPEHPK3PXP"
-    assert gh["reprompt"] == "0"
-    assert "Account ID: 12345" in gh["fields"]
+def _named(items, fragment):
+    return next(i for i in items if fragment in i.name)
 
 
-def test_onepassword_output_includes_otpauth_and_extra_urls():
-    items = parse_c2_csv(FIXTURE)
-    buf = io.StringIO()
-    write_onepassword_csv(items, buf)
-    buf.seek(0)
-    rows = list(csv.DictReader(buf))
-    assert len(rows) == 4
-
-    gh = rows[0]
-    assert gh["Title"] == "GitHub"
-    assert gh["Url"] == "https://github.com/login"
-    assert gh["Username"] == "octocat"
-    assert gh["Password"] == "hunter2!@#"
-    assert gh["OTPAuth"].startswith("otpauth://totp/")
-    assert "secret=JBSWY3DPEHPK3PXP" in gh["OTPAuth"]
-    assert gh["Favorite"] == "Y"
-    assert gh["Tags"] == "Dev"
-    assert gh["Additional URLs"] == "https://github.com"
-
-    gmail = rows[1]
-    # No TOTP -> empty OTPAuth, not a malformed URI
-    assert gmail["OTPAuth"] == ""
-    assert gmail["Favorite"] == ""
+# ---- Item types ------------------------------------------------------------
 
 
-def test_password_with_special_chars_roundtrip():
-    items = parse_c2_csv(FIXTURE)
-    gmail = items[1]
-    assert gmail.password == "p@ss w/ space"
-
-    buf = io.StringIO()
-    write_bitwarden_csv(items, buf)
-    buf.seek(0)
-    parsed = list(csv.DictReader(buf))
-    assert parsed[1]["login_password"] == "p@ss w/ space"
+def test_every_builtin_c2_type_is_recognized(items):
+    assert [i.item_type for i in items] == [
+        ITEM_TYPE_LOGIN,
+        ITEM_TYPE_IDENTITY,   # contact information
+        ITEM_TYPE_CARD,
+        ITEM_TYPE_NOTE,       # wireless router, already a note in the export
+        ITEM_TYPE_NOTE,
+    ]
 
 
-def test_parse_from_bytes_with_bom():
-    raw = FIXTURE.read_bytes()
-    bom_data = b"\xef\xbb\xbf" + raw
-    items = parse_c2_csv(bom_data)
-    assert items[0].name == "GitHub"
+def test_login_payload(items):
+    login = _named(items, "login type item")
+    assert login.username == "username value"
+    assert login.password == "password value"
+    assert login.totp == "2AactorAuthentication"
+    assert login.urls == ["http://example.com"]
+    assert login.notes == "notes value"
 
 
-def test_unrecognized_headers_raise():
-    bad = "foo,bar\n1,2\n"
-    try:
-        parse_c2_csv(bad.encode("utf-8"))
-    except ValueError as exc:
-        assert "Could not recognize" in str(exc)
-    else:
-        raise AssertionError("expected ValueError for unknown headers")
+def test_identity_payload_keeps_bitwarden_key_names(items):
+    identity = _named(items, "Contact information").identity
+    assert identity["firstName"] == "First name"
+    assert identity["postalCode"] == "ZIP code"
+    assert identity["country"] == "TW"
+    assert identity["phone"] == "+886987654321"
 
 
-# ---- Regression: fix #3 — Others JSON of an unexpected shape must not vanish.
+def test_card_payload(items):
+    card = _named(items, "payment card").card
+    assert card["number"] == "4242 4242 4242 4242"
+    assert card["brand"] == "Visa"
+    assert card["code"] == "456"
 
 
-def _make_csv_with_others(others_cell: str) -> str:
-    """Build a minimal C2 CSV with a single row whose Others cell we control."""
-    header = "Display_Name,Login_URLs,Login_Username,Login_Password,Others"
-    quoted = others_cell.replace('"', '""')
-    return header + "\n" + f'Item,,,,"{quoted}"\n'
+# ---- Requirement: custom fields stay custom fields -------------------------
 
 
-def test_others_json_bare_array_is_preserved():
-    """A JSON array (not {"Custom":[...]}) used to be silently dropped."""
-    raw = '[{"foo": "bar"}, {"baz": 1}]'
-    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
-    assert items[0].custom_fields == {"Others": raw}
+def test_custom_fields_are_kept_one_per_value(items):
+    login = _named(items, "login type item")
+    assert login.custom_fields == {
+        "Custom Field - Text Key": "text value",
+        "Custom Field - Password Key": "password value",
+        "Custom Field - 2-factor authentication": "2FAvalue",
+        "Custom Field - Address": (
+            "ZIP code TWState/ProvinceCounty/DistrictCity/TownAddress"
+        ),
+    }
 
 
-def test_others_json_dict_without_custom_key_is_preserved():
-    """A JSON dict without a 'Custom' key must also survive."""
-    raw = '{"UnexpectedKey": "keep me"}'
-    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
-    assert items[0].custom_fields == {"Others": raw}
+def test_hidden_fields_are_flagged(items):
+    login = _named(items, "login type item")
+    assert login.sensitive_fields == {
+        "Custom Field - Password Key",
+        "Custom Field - 2-factor authentication",
+    }
 
 
-def test_others_json_dict_with_non_list_custom_is_preserved():
-    """A 'Custom' value that isn't a list still counts as unrecognized."""
-    raw = '{"Custom": "not-a-list"}'
-    items = parse_c2_csv(_make_csv_with_others(raw).encode("utf-8"))
-    assert items[0].custom_fields == {"Others": raw}
+def test_router_attributes_each_get_their_own_field(items):
+    """A C2 type Bitwarden lacks arrives itemized, and must stay that way."""
+    router = _named(items, "wireless router")
+    assert router.item_type == ITEM_TYPE_NOTE
+    assert router.custom_fields == {
+        "Router Name": "network name (ssid)",
+        "Router Password": "password",
+        "Router Security": "wpa3-personal",
+        "Router IP": "ip address",
+        "Router Admin Username": "admin username",
+        "Router Admin Password": "admin password",
+    }
+    assert router.sensitive_fields == {"Router Password", "Router Admin Password"}
+
+
+# ---- Tags ------------------------------------------------------------------
+
+
+def test_tags_field_is_lifted_out_of_custom_fields(items):
+    for item in items:
+        assert "Tags" not in item.custom_fields
+    assert [i.tag for i in items] == ["tag a", "tag b", "tag b", "tag b", "tag c"]
+
+
+def test_multiple_tags_keep_the_full_value_as_a_field():
+    """Bitwarden allows one folder, so the rest must survive somewhere."""
+    item = parse_c2_json(EDGE_CASES)[0]
+    assert item.tag == "alpha"
+    assert item.custom_fields["Tags"] == "alpha\nbeta"
+
+
+# ---- Unknown types ---------------------------------------------------------
+
+
+def test_unknown_c2_type_becomes_a_note_with_itemized_fields():
+    item = parse_c2_json(EDGE_CASES)[0]
+    assert item.item_type == ITEM_TYPE_NOTE
+    assert item.custom_fields["Bank Account Bank Name"] == "Some Bank"
+    # Nested objects and arrays are walked, never dumped as JSON.
+    assert item.custom_fields["Bank Account Routing Code"] == "0001"
+    assert item.custom_fields["Bank Account Routing Branch"] == "Main"
+    assert item.custom_fields["Bank Account Holders 1"] == "A"
+    assert item.custom_fields["Bank Account Holders 2"] == "B"
+    assert not any("{" in v for v in item.custom_fields.values())
+
+
+def test_unmodelled_key_in_a_typed_payload_becomes_a_field():
+    item = parse_c2_json(EDGE_CASES)[1]
+    assert "issuingCountry" not in item.card
+    assert item.custom_fields["Card Issuing Country"] == "TW"
+
+
+def test_duplicate_field_names_do_not_clobber_each_other():
+    item = parse_c2_json(EDGE_CASES)[3]
+    assert item.custom_fields["Code"] == "first"
+    assert item.custom_fields["Code (2)"] == "second"
+    assert "Code (2)" in item.sensitive_fields
+
+
+# ---- Input handling --------------------------------------------------------
+
+
+def test_accepts_bytes_with_a_bom():
+    raw = REAL_EXPORT.read_bytes()
+    assert len(parse_c2_json(b"\xef\xbb\xbf" + raw)) == 5
+
+
+def test_accepts_a_bare_array_of_items():
+    payload = json.loads(REAL_EXPORT.read_text(encoding="utf-8-sig"))
+    assert len(parse_c2_json(json.dumps(payload["items"]))) == 5
+
+
+def test_rejects_json_that_is_not_a_c2_export():
+    with pytest.raises(ValueError, match="Not a C2 Password JSON export"):
+        parse_c2_json('{"vault": []}')
+
+
+def test_humanize_splits_camel_case():
+    assert humanize("cardholderName") == "Cardholder Name"
+    assert humanize("postalCode") == "Postal Code"
+    assert humanize("title") == "Title"
+
+
+# ---- Nothing may be silently dropped ---------------------------------------
+
+
+def test_every_value_in_the_export_reaches_some_c2item_attribute(items):
+    """Walk the raw JSON and assert each leaf value shows up somewhere."""
+    raw = json.loads(REAL_EXPORT.read_text(encoding="utf-8-sig"))
+
+    landed = set()
+    for it in items:
+        landed.update(
+            [it.name, it.notes, it.tag, it.username, it.password, it.totp]
+        )
+        landed.update(it.urls)
+        landed.update(it.card.values())
+        landed.update(it.identity.values())
+        landed.update(it.custom_fields.values())
+        # Field *names* have to survive too, as custom-field keys.
+        landed.update(it.custom_fields.keys())
+
+    # "Tags" is the one name deliberately consumed: it becomes item.tag.
+    landed.add("Tags")
+
+    def leaves(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k in {"type", "match", "favorite"}:
+                    continue
+                yield from leaves(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from leaves(v)
+        elif isinstance(node, str) and node:
+            yield node
+
+    for value in leaves(raw):
+        assert value in landed, f"{value!r} was dropped"

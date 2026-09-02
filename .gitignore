@@ -5,3 +5,8 @@ __pycache__/
 build/
 dist/
 .venv/
+.DS_Store
+
+# Converted vault exports hold plaintext secrets — never commit one.
+/bitwarden.json
+/*.csv

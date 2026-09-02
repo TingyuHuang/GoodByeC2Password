@@ -8,6 +8,11 @@ items:
 Custom fields are appended as additional columns; 1Password treats any column
 beyond the known ones as a string field on the resulting Login item, named
 after the column header.
+
+This CSV has no type column — every row becomes a Login. C2's cards, secure
+notes and routers therefore arrive as Logins whose custom fields hold the
+payload, with the original type stamped into Notes so they can be found and
+re-typed by hand afterwards.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ import csv
 from pathlib import Path
 from typing import Iterable, TextIO
 
-from ._util import otpauth_uri
+from ._util import merged_notes, otpauth_uri
 from .parser import C2Item
 
 ONEPASSWORD_BASE_HEADERS = [
@@ -46,7 +51,7 @@ def _row_for(item: C2Item, custom_headers: list[str]) -> list[str]:
         otpauth_uri(item.totp, item.username, issuer),
         "Y" if item.favorite else "",
         item.tag,
-        item.notes,
+        merged_notes(item, include_custom=False, include_extra_urls=False),
     ]
     extras = [item.custom_fields.get(h, "") for h in custom_headers]
     # Extra URLs beyond the first go into a synthetic column so they aren't lost.
