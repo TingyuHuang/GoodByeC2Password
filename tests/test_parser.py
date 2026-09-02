@@ -166,6 +166,27 @@ def test_accepts_a_bare_array_of_items():
     assert len(parse_c2_json(json.dumps(payload["items"]))) == 5
 
 
+def test_accepts_json_text_longer_than_the_filename_limit():
+    """Regression: text input used to be probed against the filesystem.
+
+    ``Path(text).exists()`` asks the OS to stat a filename the size of the
+    whole export. Python 3.14's pathlib suppresses the ENAMETOOLONG; 3.10-3.13
+    raise it, so passing decoded JSON crashed everywhere but the newest
+    interpreter.
+    """
+    text = REAL_EXPORT.read_text(encoding="utf-8-sig")
+    assert len(text) > 255  # comfortably past NAME_MAX
+    assert len(parse_c2_json(text)) == 5
+
+
+def test_accepts_a_path_given_as_a_plain_string():
+    assert len(parse_c2_json(str(REAL_EXPORT))) == 5
+
+
+def test_accepts_a_path_object():
+    assert len(parse_c2_json(REAL_EXPORT)) == 5
+
+
 def test_rejects_json_that_is_not_a_c2_export():
     with pytest.raises(ValueError, match="Not a C2 Password JSON export"):
         parse_c2_json('{"vault": []}')

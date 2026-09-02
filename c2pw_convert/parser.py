@@ -277,19 +277,32 @@ def _item_from(raw: dict[str, Any]) -> C2Item:
     return item
 
 
+def _read_source(source: str | Path | bytes) -> str:
+    """Resolve a path, bytes, or JSON text to the document's text.
+
+    A ``str`` may be either a path or a whole JSON document, and the two are
+    told apart by content rather than by asking the filesystem. Handing a
+    4 KB export to ``Path.exists()`` makes the OS stat a filename far past
+    NAME_MAX: Python 3.14's pathlib suppresses the resulting ENAMETOOLONG,
+    but 3.10-3.13 raise it straight through the caller.
+    """
+    if isinstance(source, bytes):
+        return _decode(source)
+    if isinstance(source, Path):
+        return _decode(source.read_bytes())
+
+    text = str(source)
+    if text.lstrip().startswith(("{", "[")):
+        return text
+    return _decode(Path(text).read_bytes())
+
+
 def parse_c2_json(source: str | Path | bytes) -> list[C2Item]:
     """Parse a C2 Password JSON export into a list of :class:`C2Item`.
 
-    ``source`` can be a path, raw bytes, or already-decoded text.
+    ``source`` can be a path, raw bytes, or already-decoded JSON text.
     """
-    if isinstance(source, (str, Path)) and Path(str(source)).exists():
-        text = _decode(Path(source).read_bytes())
-    elif isinstance(source, bytes):
-        text = _decode(source)
-    else:
-        text = str(source)
-
-    data = json.loads(text)
+    data = json.loads(_read_source(source))
     if isinstance(data, dict):
         items = data.get("items")
     elif isinstance(data, list):
