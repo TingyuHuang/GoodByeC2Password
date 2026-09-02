@@ -1,0 +1,47 @@
+{
+  "items": [
+    {
+      "name": "unknown C2 type",
+      "notes": "",
+      "favorite": true,
+      "fields": [{"type": 0, "name": "Tags", "value": "alpha\nbeta"}],
+      "type": 9,
+      "bankAccount": {
+        "bankName": "Some Bank",
+        "routing": {"code": "0001", "branch": "Main"},
+        "holders": ["A", "B"]
+      }
+    },
+    {
+      "name": "card with an unmodelled key",
+      "fields": [],
+      "type": 3,
+      "card": {
+        "cardholderName": "A B",
+        "number": "4242424242424242",
+        "expMonth": "09",
+        "expYear": "2031",
+        "code": "999",
+        "issuingCountry": "TW"
+      }
+    },
+    {
+      "name": "login with several uris and no fields",
+      "type": 1,
+      "login": {
+        "username": "u",
+        "password": "p",
+        "uris": [{"uri": "https://a.example"}, {"uri": "https://b.example"}]
+      }
+    },
+    {
+      "name": "duplicate field names",
+      "type": 2,
+      "fields": [
+        {"type": 0, "name": "Code", "value": "first"},
+        {"type": 1, "name": "Code", "value": "second"}
+      ],
+      "secureNote": {"type": 0}
+    }
+  ]
+}

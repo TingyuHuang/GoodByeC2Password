@@ -5,10 +5,10 @@ from __future__ import annotations
 import csv
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, TextIO
+from typing import Container, Iterator, TextIO
 from urllib.parse import quote
 
-from .parser import C2Item
+from .parser import ITEM_TYPE_DISPLAY, ITEM_TYPE_LOGIN, C2Item, humanize
 
 
 def otpauth_uri(secret: str, account: str, issuer: str) -> str:
@@ -35,6 +35,34 @@ def otpauth_uri(secret: str, account: str, issuer: str) -> str:
     return f"otpauth://totp/{quote(label)}?{params}"
 
 
+def type_label(item: C2Item) -> str:
+    """Human label for a non-login item; empty string for logins.
+
+    Most target formats collapse cards/notes/routers into one generic type,
+    so we stamp the original C2 type into the notes blob — otherwise a card
+    and a login are indistinguishable after the migration.
+    """
+    if item.item_type == ITEM_TYPE_LOGIN:
+        return ""
+    return ITEM_TYPE_DISPLAY.get(
+        item.item_type, item.item_type.replace("_", " ").capitalize()
+    )
+
+
+def structured_fields(item: C2Item) -> dict[str, str]:
+    """The card or identity payload as ``label -> value`` pairs.
+
+    CSV targets have no typed card or identity columns, so these values have
+    to be written out one line per value. They are never joined into a single
+    blob: a reader (or a later re-import) can still tell the parts apart.
+    """
+    out: dict[str, str] = {}
+    for key, value in {**item.card, **item.identity}.items():
+        if value:
+            out[humanize(key)] = value
+    return out
+
+
 def primary_url(item: C2Item) -> str:
     return item.urls[0] if item.urls else ""
 
@@ -47,23 +75,58 @@ def extra_urls_block(item: C2Item) -> str:
     return f"Additional URLs:\n{rest}"
 
 
-def merged_notes(item: C2Item, *, include_custom: bool = True, include_extra_urls: bool = True) -> str:
+def merged_notes(
+    item: C2Item,
+    *,
+    include_custom: bool = True,
+    include_extra_urls: bool = True,
+    include_type: bool = True,
+    include_structured: bool = True,
+    exclude_fields: Container[str] = (),
+) -> str:
     """Combine notes, custom fields, and overflow URLs into a single text blob.
 
     Most importers only have one free-text "notes" column, so anything that
     doesn't have a dedicated home gets glued in here so we never silently
     drop data.
+
+    ``exclude_fields`` skips custom fields the caller has already written to a
+    dedicated column, so nothing is duplicated (and no card number is written
+    twice).
     """
     parts: list[str] = []
-    if item.notes:
-        parts.append(item.notes)
 
-    if include_custom and item.custom_fields:
+    label = type_label(item) if include_type else ""
+    if label:
+        parts.append(f"C2 item type: {label}")
+
+    if item.notes:
         if parts:
             parts.append("")
-        parts.append("--- Custom fields ---")
-        for k, v in item.custom_fields.items():
-            parts.append(f"{k}: {v}")
+        parts.append(item.notes)
+
+    if include_structured:
+        structured = [
+            (k, v) for k, v in structured_fields(item).items()
+            if k not in exclude_fields
+        ]
+        if structured:
+            if parts:
+                parts.append("")
+            parts.append(f"--- {type_label(item) or 'Details'} ---")
+            for k, v in structured:
+                parts.append(f"{k}: {v}")
+
+    if include_custom:
+        shown = [
+            (k, v) for k, v in item.custom_fields.items() if k not in exclude_fields
+        ]
+        if shown:
+            if parts:
+                parts.append("")
+            parts.append("--- Custom fields ---")
+            for k, v in shown:
+                parts.append(f"{k}: {v}")
 
     if include_extra_urls:
         block = extra_urls_block(item)
