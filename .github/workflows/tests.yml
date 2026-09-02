@@ -1,0 +1,63 @@
+name: tests
+
+# Gates merges into master: a pull request cannot go green unless the suite
+# passes on every supported Python. Runs on master too, so a bad merge or a
+# direct push is still caught.
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# A new push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every failing version in one run rather than stopping at the
+      # first, so a version-specific break is obvious immediately.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Editable install also proves the packaging metadata is valid.
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e ".[test]"
+
+      - name: Run tests
+        run: pytest -q
+
+      # The unit tests drive the CLI via `python -m`; this checks the
+      # console script declared in pyproject actually resolves too.
+      - name: Smoke-test the installed entry point
+        run: |
+          c2pw-convert tests/C2Password_Export.json --to bitwarden -o out.json
+          python -c "import json,sys; d=json.load(open('out.json')); assert len(d['items'])==5, d; print('entry point ok')"
+
+  # Single check for branch protection to require, instead of ticking every
+  # matrix entry by hand (and re-ticking whenever the matrix changes).
+  all-tests-pass:
+    name: all tests pass
+    if: always()
+    needs: [pytest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every test job succeeded
+        if: needs.pytest.result != 'success'
+        run: |
+          echo "pytest matrix result: ${{ needs.pytest.result }}"
+          exit 1

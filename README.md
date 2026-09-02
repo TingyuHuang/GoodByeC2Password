@@ -1,5 +1,7 @@
 # GoodByeC2Password
 
+[![tests](https://github.com/TingyuHuang/GoodByeC2Password/actions/workflows/tests.yml/badge.svg)](https://github.com/TingyuHuang/GoodByeC2Password/actions/workflows/tests.yml)
+
 把 [Synology C2 Password](https://c2.synology.com/en-global/password/) 的 JSON 匯出檔轉成別的密碼管理器能直接匯入的檔案。
 
 **Bitwarden 是本專案的一級目標**，輸出 Bitwarden 的 JSON 匯入格式——這是唯一能無損表達 C2 全部項目型別的路徑。其餘目標都是 CSV，且**未經實機驗證**（見下方標示）。
@@ -309,10 +311,19 @@ class C2Item:
 ```sh
 git clone <repo-url>
 cd GoodByeC2Password
-pip install -e .
-pip install pytest
-python -m pytest -v
+pip install -e ".[test]"
+pytest
 ```
+
+### CI
+
+`.github/workflows/tests.yml` 在**針對 master 的 PR** 與**推進 master** 時跑整套測試，Python 3.10–3.14 各跑一次，並額外驗證 `pip install` 後的 `c2pw-convert` 進入點真的能執行。
+
+matrix 之外還有一個 `all tests pass` 匯總 job——它只在所有 matrix job 都成功時才成功。**branch protection 只要求這一個 check 就好**，不必逐一勾選五個版本，日後增減 Python 版本也不用改設定。
+
+> Tests run on every PR targeting master across Python 3.10–3.14. The
+> aggregate `all tests pass` job is the single check to require in branch
+> protection.
 
 專案結構：
 
